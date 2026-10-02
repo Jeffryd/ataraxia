@@ -1,0 +1,20 @@
+:root {
+  --teal: #4f8a8b;
+  --teal-dark: #346d6e;
+  --secondary: #8db7b3;
+  --sage: #a9bfae;
+  --page: #f7f7f2;
+  --muted: #f0f2ed;
+  --surface: #fff;
+  --text: #263535;
+  --text-muted: #566666;
+  --border: #e1e7e4;
+  --border-strong: #7b8c87;
+  --success: #35734e;
+  --warning: #806020;
+  --danger: #a03d3d;
+  --focus: #2f7476;
+  --sand: #e9e3d5;
+  --radius: 22px;
+  --content: 1180px;
+}
