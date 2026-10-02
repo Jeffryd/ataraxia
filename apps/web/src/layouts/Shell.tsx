@@ -48,7 +48,15 @@ export function Shell() {
   }, [location.pathname]);
   return (
     <>
-      <a href="#main" className={styles.skip}>
+      <a
+        href="#main"
+        className={styles.skip}
+        onClick={(event) => {
+          event.preventDefault();
+          main.current?.focus();
+          main.current?.scrollIntoView();
+        }}
+      >
         Saltar al contenido
       </a>
       <header className={styles.header}>

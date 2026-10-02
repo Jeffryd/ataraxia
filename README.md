@@ -23,7 +23,7 @@ apps/web/src/
   features/        Assessment, resources, plan, vitals, requests, data, dashboard, support
   layouts/         Responsive shell and navigation
   pages/           Landing, privacy, accessibility, help and not-found
-  services/        Validated public API access with built-in fallbacks
+  services/        Shared public content and development API access
   storage/         Local repository and React provider
   styles/          Global tokens and typography
 apps/api/src/      Stateless Hapi application, server lifecycle and API tests
@@ -33,7 +33,7 @@ e2e/              Real Chrome user-flow tests
 
 React 19, TypeScript 6, Vite 8, React Router 7, React Hook Form, Zod 4, TanStack Query, CSS Modules and Recharts power the frontend. Hapi 21 serves public configuration and educational content. npm workspaces share schemas and pure functions. Vitest, React Testing Library, Playwright, ESLint and Prettier provide validation. `package-lock.json` pins the installed dependency graph. A compatible esbuild override avoids the vulnerable transitive version shipped by the build-tool dependency range.
 
-TanStack Query manages only API server state. React and the storage repository own browser data. The Hapi server never reads or persists browser localStorage. The dashboard is lazy-loaded so its chart library is not required for the landing page. Feature folders contain actual functionality; unused abstraction folders were not created.
+TanStack Query manages public configuration and resources, using the API in development and bundled shared content in production. React and the storage repository own browser data. The Hapi server never reads or persists browser localStorage. The dashboard is lazy-loaded so its chart library is not required for the landing page. Feature folders contain actual functionality; unused abstraction folders were not created.
 
 ## Requirements and installation
 
@@ -60,7 +60,7 @@ Copy `apps/api/.env.example` to `apps/api/.env` and `apps/web/.env.example` to `
 | `SUPPORT_PHONE`    | Institutional contact phone      | `+52 9371549923`               |
 | `SUPPORT_URL`      | Institutional HTTPS support page | Empty                          |
 
-The web equivalents are `VITE_INSTITUTION_NAME`, `VITE_EMERGENCY_PHONE`, `VITE_SUPPORT_PHONE`, and `VITE_SUPPORT_URL`. These provide offline/API-failure fallback contacts and must be kept aligned with verified server values. Never place secrets in `VITE_*` variables. `VITE_API_BASE_URL` defaults to `http://localhost:3001/api` in development and `/api` in production. Vite variables are read at build time. Invalid API responses are rejected by Zod; resources and help retain built-in local fallbacks with visible notices and retry controls.
+The web equivalents are `VITE_INSTITUTION_NAME`, `VITE_EMERGENCY_PHONE`, `VITE_SUPPORT_PHONE`, and `VITE_SUPPORT_URL`. These configure the static production app and provide development API-failure fallback contacts. Keep them aligned with verified server values. Never place secrets in `VITE_*` variables. `VITE_API_BASE_URL` defaults to `http://localhost:3001/api` in development and is ignored in production. Production reads configuration and resources locally without API requests. Vite variables are read at build time. Invalid API responses are rejected by Zod; resources and help retain built-in local fallbacks with visible notices and retry controls.
 
 ## Commands
 
@@ -70,18 +70,35 @@ npm run typecheck     # Strict TypeScript checks across all workspaces
 npm run lint          # ESLint, including hook correctness
 npm test              # Unit, API and React interaction tests
 npm run test:e2e      # Real Chrome user flows; starts development servers
-npm run test:e2e:production # The same user flows against the compiled Hapi-hosted app
+npm run test:e2e:production # The same user flows against the static build under /ataraxia/
 npm run build         # Shared declarations, bundled API, production web assets
-npm start             # Hapi serving both API and built SPA
+npm start             # Optional Hapi API; see below for root-hosted web builds
 npm run format        # Apply Prettier
 npm run format:check  # Verify formatting without editing
 ```
 
 The browser tests use the installed Google Chrome channel. If Chrome is unavailable, install Chrome or adjust `playwright.config.ts` to use an installed Playwright Chromium browser. No browser download is needed in the validated Windows environment. E2E output is ignored in `test-results/`; failures preserve traces and successful layout checks save screenshots.
 
-## Production build and route refresh
+## GitHub Pages deployment and route refresh
 
-Run `npm run build` and `npm start`, then visit `http://localhost:3001`. Hapi serves `apps/web/dist` and returns the SPA entry for frontend routes, so direct refresh works. API paths retain JSON errors. Do not deploy only the Vite files behind a server without an equivalent SPA fallback. The included server binds to loopback for this local MVP; external hosting requires deliberate host/TLS/reverse-proxy configuration.
+The production frontend is a static application at `https://jeffryd.github.io/ataraxia/`. It uses shared configuration, resources, validation and business rules without Hapi. Production routes use hashes, for example `/ataraxia/#/recursos/sleep`. Links, direct navigation, refresh and browser history work without a `404.html` workaround. Clean nested URLs such as `/ataraxia/recursos/sleep` are not supported by GitHub Pages; share the hash URLs. Development retains browser-history routes at the origin root.
+
+In `Jeffryd/ataraxia`, select **Settings > Pages > Build and deployment > Source > GitHub Actions**. The workflow in `.github/workflows/pages.yml` runs on pushes to `master` and manual dispatch. It uses Node 22.23.2 (compatible with `engines.node >=22.12.0`), runs `npm ci`, builds shared dependencies, checks types, lint and tests, builds the frontend and runs production browser tests before uploading `apps/web/dist`. Only the deployment job receives Pages write and OIDC permissions; deployments are serialized.
+
+To verify locally without Hapi:
+
+```sh
+npm run build -w @ataraxia/shared
+npm run build -w @ataraxia/web
+npm run test:e2e:production
+npm run preview -w @ataraxia/web
+```
+
+Open `http://127.0.0.1:4173/ataraxia/` for the preview. The production browser suite uses this base path, refreshes every route and rejects any API requests. Existing development API failure and invalid-response checks still run with `npm run test:e2e`.
+
+Hapi remains available through `npm run dev` or `npm start` after `npm run build`. To serve the compiled frontend at Hapi's root for local testing, rebuild it with `npm run build -w @ataraxia/web -- --base /`, then open `http://localhost:3001/#/`. Rebuild with the default base before testing or deploying Pages.
+
+Persistence remains in `localStorage` under `ataraxia.database`, with the same validation, size limits, merge and backup behavior. Storage belongs to the browser origin: localhost data does not automatically transfer to `https://jeffryd.github.io`. Use the existing export/import flow to move records. Shared functions use Zod and browser-compatible JavaScript APIs; no Node-only modules or server secrets are bundled. The optional `POST /api/import/validate` endpoint remains available to API clients, but the frontend already validates imports locally through `parseDatabase()` and `validateDatabase()`.
 
 ## Route map
 
@@ -153,7 +170,7 @@ Semantic landmarks, skip navigation, route focus, visible focus rings, labeled f
 
 Replace the repository adapter with authenticated API operations and server-side relational persistence. Add institution tenancy, real authorization, encryption/key management, audit trails, consent governance and retention policies. Commission clinical content/scoring review, safety testing, privacy and security assessment, and accessibility evaluation. Integrate real scheduling and notification services only with explicit institutional agreements. Mobile clients and faculty-specific content can consume the versioned shared contracts after those foundations exist. Keep secrets server-side and define verified location-specific urgent-support resources before launch.
 
-## Local validation record
+## Original local validation record
 
 Validated on Windows with Node 22.23.2, npm 10.9.8 and installed Google Chrome. The production build, ESLint, strict type checking and Prettier checks pass. Vitest reports 46 passing tests in four files. Fourteen browser scenarios pass in development and the same fourteen pass against the compiled Hapi-hosted production app, including all frontend routes, direct navigation, assessment/back/resume/urgent flows, persisted plan progress and goal editing, vital CRUD, simulated request lifecycle, export/backup/replace/merge, corruption recovery, invalid imports/API responses, dashboard privacy and keyboard mobile navigation. Layout checks cover 320, 375, 768 and 1440 pixel widths. Primary action contrast is 5.90:1 against white; body secondary text is 5.60:1 against the page background; input borders exceed 3:1 against white. These focused checks are not formal accessibility certification.
 

@@ -1,12 +1,29 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import {
   emptyDatabase,
   metadata,
   seedDemoData,
 } from '../packages/shared/src/index';
+const test = base.extend({
+  page: async ({ page }, use) => {
+    const apiRequests: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.startsWith('/api/'))
+        apiRequests.push(request.url());
+    });
+    await use(page);
+    if (test.info().config.metadata.staticDeployment)
+      expect(apiRequests).toEqual([]);
+  },
+});
+async function goToRoute(page: Page, route: string) {
+  return page.goto(
+    test.info().config.metadata.staticDeployment ? `./#${route}` : route,
+  );
+}
 async function startAssessment(page: Page) {
-  await page.goto('/evaluacion');
+  await goToRoute(page, '/evaluacion');
   await page.getByRole('checkbox', { name: /Entiendo estas/ }).check();
   await page.getByRole('button', { name: 'Continuar', exact: true }).click();
   await page
@@ -101,7 +118,7 @@ test('urgent answers interrupt the flow without creating a plan or appointment',
 test('vital signs can be created edited and deleted with confirmation', async ({
   page,
 }) => {
-  await page.goto('/signos-vitales');
+  await goToRoute(page, '/signos-vitales');
   await page
     .getByLabel('Frecuencia cardíaca (latidos/min)', { exact: true })
     .fill('72');
@@ -129,7 +146,7 @@ test('vital signs can be created edited and deleted with confirmation', async ({
   ).toBeVisible();
 });
 test('simulated appointments can be edited and cancelled', async ({ page }) => {
-  await page.goto('/atencion');
+  await goToRoute(page, '/atencion');
   await page.getByLabel('Fecha preferida').fill('2027-12-01');
   await page.getByLabel('Hora preferida').fill('10:30');
   await page
@@ -162,7 +179,7 @@ test('simulated appointments can be edited and cancelled', async ({ page }) => {
 test('exports valid JSON and downloads a backup before replace', async ({
   page,
 }) => {
-  await page.goto('/datos');
+  await goToRoute(page, '/datos');
   await page.getByRole('button', { name: 'Exportar mis datos' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Confirmar', exact: true }).click();
@@ -190,7 +207,7 @@ test('mobile navigation, dialogs and responsive layout work', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/');
+  await goToRoute(page, '/');
   const menu = page.getByRole('button', { name: /Menú/ });
   await menu.focus();
   await page.keyboard.press('Enter');
@@ -234,13 +251,14 @@ test('all routes render and direct refresh works', async ({ page }) => {
     '/ayuda',
     '/missing',
   ]) {
-    await page.goto(route);
+    await goToRoute(page, route);
+    await page.reload();
     await expect(page.locator('h1,h2').first()).toBeVisible();
     await expect(
       page.getByRole('heading', { name: 'No pudimos mostrar esta página' }),
     ).toHaveCount(0);
   }
-  await page.goto('/');
+  await goToRoute(page, '/');
   await page.screenshot({
     path: 'test-results/home-desktop.png',
     fullPage: true,
@@ -249,7 +267,7 @@ test('all routes render and direct refresh works', async ({ page }) => {
 test('dashboard filters demonstration records and removes them', async ({
   page,
 }) => {
-  await page.goto('/institucional');
+  await goToRoute(page, '/institucional');
   await page
     .getByRole('button', {
       name: 'Activar vista institucional de demostración',
@@ -270,13 +288,16 @@ test('dashboard filters demonstration records and removes them', async ({
 });
 test('API failure leaves resources and support usable', async ({ page }) => {
   await page.route('**/api/**', (route) => route.abort());
-  await page.goto('/recursos');
+  await goToRoute(page, '/recursos');
   await expect(
     page.getByRole('link', { name: 'Un cierre tranquilo para tu día' }),
   ).toBeVisible();
   await expect(
     page.getByText(/El catálogo en línea no está disponible/),
-  ).toBeVisible({ timeout: 15000 });
+  ).toBeVisible({
+    timeout: 15000,
+    visible: !test.info().config.metadata.staticDeployment,
+  });
   await page.getByRole('button', { name: '♡ Necesito apoyo' }).click();
   await expect(page.getByText(/Configuración local de respaldo/)).toBeVisible();
 });
@@ -287,7 +308,7 @@ test('saved assessment resumes after reload with earlier answers intact', async 
   await page
     .getByRole('button', { name: 'Guardar y salir', exact: true })
     .click();
-  await page.goto('/evaluacion');
+  await goToRoute(page, '/evaluacion');
   await expect(
     page.getByRole('heading', { name: 'Tu cuerpo y tu seguridad' }),
   ).toBeVisible();
@@ -303,7 +324,7 @@ test('saved assessment resumes after reload with earlier answers intact', async 
 test('corrupted storage is preserved and raw recovery is downloadable', async ({
   page,
 }) => {
-  await page.goto('/');
+  await goToRoute(page, '/');
   await page.evaluate(() =>
     localStorage.setItem('ataraxia.database', '{broken'),
   );
@@ -332,16 +353,19 @@ test('invalid API responses use safe local content and all normal viewports fit'
   await page.route('**/api/resources', (route) =>
     route.fulfill({ json: { invalid: true } }),
   );
-  await page.goto('/recursos');
+  await goToRoute(page, '/recursos');
   await expect(
     page.getByText(/El catálogo en línea no está disponible/),
-  ).toBeVisible({ timeout: 15000 });
+  ).toBeVisible({
+    timeout: 15000,
+    visible: !test.info().config.metadata.staticDeployment,
+  });
   await expect(
     page.getByRole('link', { name: 'Respira sin prisa' }),
   ).toBeVisible();
   for (const width of [320, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto('/');
+    await goToRoute(page, '/');
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -366,7 +390,7 @@ test('import restores business records and merge resolves newer revisions', asyn
     ...seedDemoData(emptyDatabase()),
     appointments: [appointment],
   };
-  await page.goto('/datos');
+  await goToRoute(page, '/datos');
   const upload = async (value: unknown) =>
     page.getByLabel('Archivo de respaldo').setInputFiles({
       name: 'backup.json',
@@ -376,11 +400,11 @@ test('import restores business records and merge resolves newer revisions', asyn
   await upload(database);
   await page.getByRole('button', { name: 'Combinar', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar', exact: true }).click();
-  await page.goto('/atencion');
+  await goToRoute(page, '/atencion');
   await expect(
     page.getByText('Solicitud importada', { exact: true }),
   ).toBeVisible();
-  await page.goto('/datos');
+  await goToRoute(page, '/datos');
   await upload({
     ...database,
     appointments: [
@@ -398,7 +422,7 @@ test('import restores business records and merge resolves newer revisions', asyn
   );
   expect(stored.appointments).toHaveLength(1);
   expect(stored.appointments[0].reason).toBe('Revisión más reciente');
-  await page.goto('/institucional');
+  await goToRoute(page, '/institucional');
   await page
     .getByRole('button', {
       name: 'Activar vista institucional de demostración',
@@ -407,7 +431,7 @@ test('import restores business records and merge resolves newer revisions', asyn
   await expect(page.getByRole('main')).not.toContainText(appointment.notes);
 });
 test('invalid imports cannot overwrite local records', async ({ page }) => {
-  await page.goto('/datos');
+  await goToRoute(page, '/datos');
   const initial = await page.evaluate(() =>
     localStorage.getItem('ataraxia.database'),
   );
@@ -426,4 +450,30 @@ test('invalid imports cannot overwrite local records', async ({ page }) => {
       await page.evaluate(() => localStorage.getItem('ataraxia.database')),
     ).toBe(initial);
   }
+});
+
+test('navigation preserves routes through skip links and browser history', async ({
+  page,
+}) => {
+  await goToRoute(page, '/');
+  await page.locator('nav a[href$="/recursos"]').first().click();
+  await expect(
+    page.locator('a[href$="/recursos/sleep"]').first(),
+  ).toBeVisible();
+  const catalogUrl = page.url();
+  const heading = await page.locator('h1').textContent();
+  await page.locator('a[href="#main"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('main')).toBeFocused();
+  expect(page.url()).toBe(catalogUrl);
+  await page.locator('a[href$="/recursos/sleep"]').first().click();
+  await expect(page.locator('article h1')).toBeVisible();
+  const detailUrl = page.url();
+  await page.reload();
+  await expect(page.locator('article h1')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('h1')).toHaveText(heading!);
+  await page.goForward();
+  await expect(page).toHaveURL(detailUrl);
+  await expect(page.locator('article h1')).toBeVisible();
 });

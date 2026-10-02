@@ -31,8 +31,7 @@ export const localConfig = configuredFallback.success
   ? configuredFallback.data
   : fallbackConfig;
 const baseUrl =
-  import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
+  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001/api';
 async function fetchValidated<T>(
   path: string,
   schema: z.ZodType<T>,
@@ -49,7 +48,11 @@ async function fetchValidated<T>(
 export function usePublicConfig() {
   const query = useQuery({
     queryKey: ['config'],
-    queryFn: () => fetchValidated('/config', publicConfigSchema),
+    queryFn: async () =>
+      import.meta.env.DEV
+        ? fetchValidated('/config', publicConfigSchema)
+        : publicConfigSchema.parse(localConfig),
+    initialData: import.meta.env.PROD ? localConfig : undefined,
     retry: 1,
     staleTime: 300000,
   });
@@ -58,7 +61,13 @@ export function usePublicConfig() {
 export function useResources() {
   const query = useQuery({
     queryKey: ['resources'],
-    queryFn: () => fetchValidated('/resources', z.array(resourceArticleSchema)),
+    queryFn: async () =>
+      import.meta.env.DEV
+        ? fetchValidated('/resources', z.array(resourceArticleSchema))
+        : z.array(resourceArticleSchema).parse(resources),
+    initialData: import.meta.env.PROD
+      ? z.array(resourceArticleSchema).parse(resources)
+      : undefined,
     retry: 1,
     staleTime: 300000,
   });
